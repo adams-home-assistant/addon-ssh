@@ -1,6 +1,6 @@
 {
   "name": "SSH & Web Terminal - Adam's Fork",
-  "version": "dev",
+  "version": "dev.0.1",
   "slug": "ssh",
   "description": "SSH & Web Terminal access to your Home Assistant instance",
   "url": "https://github.com/hassio-addons/addon-ssh",
@@ -45,6 +45,8 @@
   "options": {
     "ssh": {
       "username": "hassio",
+      "script_username": "auto",
+      "git_username": "git",
       "password": "",
       "authorized_keys": [],
       "sftp": false,
@@ -62,6 +64,8 @@
     "log_level": "list(trace|debug|info|notice|warning|error|fatal)?",
     "ssh": {
       "username": "str",
+      "script_username": "str",
+      "git_username": "str",
       "password": "password",
       "authorized_keys": ["str"],
       "sftp": "bool",

@@ -12,6 +12,9 @@ readonly SSH_USER_PATH=/data/.ssh
 readonly ZSH_HISTORY_FILE=/root/.zsh_history
 readonly ZSH_HISTORY_PERSISTENT_FILE=/data/.zsh_history
 
+bashio::log.notice 'Running user.sh'
+bashio::log.notice "HOME: ${HOME}"
+
 # Links some common directories to the user's home folder for convenience
 for dir in "${DIRECTORIES[@]}"; do
     ln -s "/${dir}" "${HOME}/${dir}" \

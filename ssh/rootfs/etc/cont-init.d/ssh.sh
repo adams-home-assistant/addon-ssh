@@ -10,6 +10,8 @@ readonly SSH_HOST_RSA_KEY=/data/ssh_host_rsa_key
 declare password
 declare port
 declare username
+declare script_username
+declare git_username
 
 port=$(bashio::addon.port 22)
 
@@ -23,17 +25,24 @@ fi
 # Check if a username is set
 bashio::config.require.username 'ssh.username'
 
-# Warn about using the root user
-if bashio::config.equals 'ssh.username' 'root' \
-    || bashio::config.equals 'web.username' 'root'; then
-    bashio::log.warning
-    bashio::log.warning 'Logging in with "root" as the username,'
-    bashio::log.warning 'is security wise a bad idea!'
-    bashio::log.warning
-    bashio::log.warning 'Most attacks against SSH are attempts to login'
-    bashio::log.warning 'using the "root" username.'
-    bashio::log.warning
-fi
+function check_usernames {
+    # Warn about using the root user
+    if bashio::config.equals "$1" 'root'; then
+        bashio::log.warning
+        bashio::log.warning 'Logging in with "root" as the username,'
+        bashio::log.warning "is security wise a bad idea! ($1)"
+        bashio::log.warning
+        bashio::log.warning 'Most attacks against SSH are attempts to login'
+        bashio::log.warning 'using the "root" username.'
+        bashio::log.warning
+    fi
+}
+
+check_usernames 'ssh.username'
+check_usernames 'ssh.script_username'
+check_usernames 'ssh.git_username'
+check_usernames 'web.username'
+
 
 # We require at least a password or an authorized key
 if bashio::config.is_empty 'ssh.authorized_keys' \
@@ -97,24 +106,36 @@ if ! bashio::fs.file_exists "${SSH_HOST_ED25519_KEY}"; then
         || bashio::exit.nok 'Failed to generate ED25519 host key'
 fi
 
+function create_username  {
+  # Create user account if the user isn't root
+  if [[ "$1" != "root" ]]; then
+
+      # Create an user account
+      adduser -D "$1" -s "/bin/sh" \
+          || bashio::exit.nok 'Failed creating the user account'
+
+      # Add new user to the wheel group
+      adduser "$1" wheel \
+          || bashio::exit.nok 'Failed adding user to wheel group'
+
+      # Ensure new user switches to root after login
+      echo 'exec sudo -i' > "/home/$1/.profile" \
+          || bashio::exit.nok 'Failed configuring user profile'
+  fi
+}
+
 username=$(bashio::config 'ssh.username')
 username=$(bashio::string.lower "${username}")
+create_username "${username}"
 
-# Create user account if the user isn't root
-if [[ "${username}" != "root" ]]; then
+script_username=$(bashio::config 'ssh.script_username')
+script_username=$(bashio::string.lower "${script_username}")
+create_username "${script_username}"
 
-    # Create an user account
-    adduser -D "${username}" -s "/bin/sh" \
-        || bashio::exit.nok 'Failed creating the user account'
+git_username=$(bashio::config 'ssh.git_username')
+git_username=$(bashio::string.lower "${git_username}")
+create_username "${git_username}"
 
-    # Add new user to the wheel group
-    adduser "${username}" wheel \
-        || bashio::exit.nok 'Failed adding user to wheel group'
-
-    # Ensure new user switches to root after login
-    echo 'exec sudo -i' > "/home/${username}/.profile" \
-        || bashio::exit.nok 'Failed configuring user profile'
-fi
 
 # We need to set a password for the user account
 if bashio::config.has_value 'ssh.password'; then
@@ -123,7 +144,10 @@ else
     # Use a random password in case none is set
     password=$(pwgen 64 1)
 fi
+
 chpasswd <<< "${username}:${password}" 2&> /dev/null
+chpasswd <<< "${script_username}:${password}" 2&> /dev/null
+chpasswd <<< "${git_username}:${password}" 2&> /dev/null
 
 # Sets up the authorized SSH keys
 if bashio::config.has_value 'ssh.authorized_keys'; then
@@ -142,13 +166,27 @@ if bashio::config.true 'ssh.sftp'; then
     bashio::log.notice 'SFTP access is enabled'
 fi
 
-# Allow specified user to log in
-if [[ "${username}" != "root" ]]; then
-    sed -i "s/AllowUsers\\ .*/AllowUsers\\ ${username}/" "${SSH_CONFIG_PATH}" \
-        || bashio::exit.nok 'Failed opening SSH for the configured user'
-else
-    sed -i "s/PermitRootLogin\\ .*/PermitRootLogin\\ yes/" "${SSH_CONFIG_PATH}" \
-        || bashio::exit.nok 'Failed opening SSH for the root user'
+function allow_login {
+  # Allow specified user to log in
+  if [[ "$1" != "root" ]]; then
+      sed -i "s/AllowUsers\\ .*/AllowUsers\\ $1/" "${SSH_CONFIG_PATH}" \
+          || bashio::exit.nok 'Failed opening SSH for the configured user'
+  fi
+}
+
+allow_login "${username}"
+
+if bashio::config.has_value 'ssh.script_username'; then
+  allow_login "${script_username}"
+fi
+
+if bashio::config.has_value 'ssh.git_username'; then
+  allow_login "${git_username}"
+fi
+
+if [[ "${username}" == "root" || "${script_username}" == "root"  || "${git_username}" == "root"  ]]; then
+  sed -i "s/PermitRootLogin\\ .*/PermitRootLogin\\ yes/" "${SSH_CONFIG_PATH}" \
+      || bashio::exit.nok 'Failed opening SSH for the root user'
 fi
 
 # Enable password authentication when password is set
